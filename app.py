@@ -1,6 +1,8 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 from db_manager import get_historical_data
 from upload_script import process_and_upload
 
@@ -258,6 +260,7 @@ with tab1:
                 ultimo_porcentaje = (ultimo_total / total_sugeridas * 100)
                 titulo_grafico += f" (Meta Sugerida: {total_sugeridas} | Último Cumplimiento: {ultimo_porcentaje:.1f}%)"
 
+            # Crear figura base con plotly express
             fig_line = px.line(
                 df_tendencia_final, x='fecha', y='Total', color='Aliado',
                 text='Total',
@@ -273,7 +276,45 @@ with tab1:
                     fig_line.data[idx].line.dash = 'dot'
                     fig_line.data[idx].line.color = '#ef4444' # Rojo claro
                     
-            st.plotly_chart(fig_line, use_container_width=True)
+            # Crear figura con subplots para doble eje Y
+            fig_final = make_subplots(specs=[[{"secondary_y": True}]])
+            
+            # Añadir las trazas de px.line a la nueva figura
+            for trace in fig_line.data:
+                fig_final.add_trace(trace, secondary_y=False)
+                
+            # Añadir línea de % Cumplimiento
+            if total_sugeridas > 0 and not df_tendencia_total.empty:
+                porcentaje_num = (df_tendencia_total['Total'] / total_sugeridas * 100).round(1)
+                fig_final.add_trace(
+                    go.Scatter(
+                        x=df_tendencia_total['fecha'], 
+                        y=porcentaje_num, 
+                        name='% Cumplimiento', 
+                        mode='lines+markers+text',
+                        text=porcentaje_num.astype(str) + '%',
+                        textposition="bottom right",
+                        line=dict(color='#f59e0b', width=2, dash='dash'), # Naranja oscuro
+                        hovertemplate='<b>%{x}</b><br>Cumplimiento: %{y}%<extra></extra>'
+                    ),
+                    secondary_y=True
+                )
+                
+            # Actualizar diseño
+            fig_final.update_layout(
+                title=fig_line.layout.title,
+                xaxis_title="Fecha de Operación",
+                legend_title_text='Aliado / Métrica'
+            )
+            fig_final.update_yaxes(title_text="Cantidad de Móviles", secondary_y=False)
+            
+            if total_sugeridas > 0 and not df_tendencia_total.empty:
+                max_pct = max(110.0, porcentaje_num.max() + 10.0)
+                fig_final.update_yaxes(title_text="% de Cumplimiento", secondary_y=True, range=[0, max_pct])
+            else:
+                fig_final.update_yaxes(title_text="% de Cumplimiento", secondary_y=True, range=[0, 100])
+                
+            st.plotly_chart(fig_final, use_container_width=True)
         else:
             st.info("No hay datos en la tendencia para graficar con estos filtros.")
 
