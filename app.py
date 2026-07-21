@@ -216,7 +216,7 @@ with tab1:
             "Huila": 5,
             "Ibagué": 72,
             "Neiva": 79,
-            "Palmira": 5,
+            "Palmira": 50,
             "Pasto": 43,
             "Popayán": 43,
             "Tuluá": 53
