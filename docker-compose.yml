@@ -1,0 +1,36 @@
+version: '3.8'
+
+services:
+  conteo_db:
+    image: mysql:8.0
+    container_name: conteo_mov_db
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: conteo_moviles
+    ports:
+      - "3312:3306"
+    volumes:
+      - conteo_mysql_data:/var/lib/mysql
+    restart: unless-stopped
+
+  conteo_streamlit:
+    build: .
+    container_name: conteo_mov_streamlit
+    ports:
+      - "8502:8501"
+    environment:
+      - DB_HOST=conteo_db
+      - DB_USER=root
+      - DB_PASSWORD=root
+      - DB_NAME=conteo_moviles
+      - DB_PORT=3306
+    depends_on:
+      - conteo_db
+    volumes:
+      - .:/app
+    restart: unless-stopped
+
+volumes:
+  conteo_mysql_data:
+    external: true
+    name: conteo_mov_conteo_mysql_data
