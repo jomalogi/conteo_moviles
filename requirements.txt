@@ -7,3 +7,4 @@ SQLAlchemy==2.0.23
 python-dotenv==1.0.0
 cryptography==41.0.5
 holidays==0.36
+
