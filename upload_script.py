@@ -275,6 +275,10 @@ def process_and_upload(moviles_df, bases_operativas_df):
         # Eliminar las columnas temporales Score y conteo
         df_unicos_db = df_unicos_db.drop(columns=['Score', 'conteo'])
 
+        # HACK: Marcar en el nombre del tecnico si tuvo alguna orden Brownfield
+        tecnicos_bf = df_to_db[df_to_db['trabajo_final'] == 'Brownfield']['tecnico_id'].unique()
+        df_unicos_db.loc[df_unicos_db['tecnico_id'].isin(tecnicos_bf), 'tecnico_nombre'] += " [BF]"
+
         # 5. Insertar a la base de datos
         delete_data_for_date(fecha_dt)
         upload_dataframe(df_unicos_db)

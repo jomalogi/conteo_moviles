@@ -139,6 +139,9 @@ with tab1:
             (df_filtered['fecha'] <= end_date)
         ]
 
+        # --- GUARDAR COPIA ANTES DE UNIFICAR PARA CONTAR BROWNFIELD REAL ---
+        df_filtered_raw = df_filtered.copy()
+
         # GARANTIZAR UNICIDAD: Un solo registro por Técnico (External ID) por Fecha
         df_filtered = df_filtered.drop_duplicates(subset=['fecha', 'tecnico_id'])
 
@@ -166,12 +169,22 @@ with tab1:
             val_brownfield = promedio_trabajos * 0.31
             val_traslados = promedio_trabajos * 0.10
             
-            cols_obj = st.columns(3)
+            # --- NUEVA TARJETA: MOV CON BF ---
+            df_raw_valid = df_filtered_raw[
+                df_filtered_raw['fecha'].apply(lambda d: d.weekday() != 6 and d not in co_holidays)
+            ]
+            
+            df_bf = df_raw_valid[df_raw_valid['tecnico_nombre'].astype(str).str.contains(r'\[BF\]', na=False)]
+            total_mov_bf = df_bf.drop_duplicates(subset=['fecha', 'tecnico_id']).shape[0]
+            
+            cols_obj = st.columns(4)
             with cols_obj[0]:
                 st.markdown(create_card("Promedio Instalaciones", f"{val_instalaciones:.0f}", "#0284c7"), unsafe_allow_html=True)
             with cols_obj[1]:
                 st.markdown(create_card("Promedio Brownfield", f"{val_brownfield:.0f}", "#7c3aed"), unsafe_allow_html=True)
             with cols_obj[2]:
+                st.markdown(create_card("MOV CON BF", f"{total_mov_bf}", "#f59e0b"), unsafe_allow_html=True)
+            with cols_obj[3]:
                 st.markdown(create_card("Promedio Traslados", f"{val_traslados:.0f}", "#0d9488"), unsafe_allow_html=True)
             
             st.divider()
@@ -211,17 +224,17 @@ with tab1:
         
         # Diccionario de Móviles Sugeridas por Base Operativa
         sugeridas_dict = {
-            "Cali Norte": 128,
-            "Cali Sur": 203,
+            "Cali Norte": 141,
+            "Cali Sur": 222,
             "Espinal": 15,
             "Florencia": 13,
             "Huila": 5,
             "Ibagué": 72,
-            "Neiva": 79,
-            "Palmira": 50,
+            "Neiva": 80,
+            "Palmira": 51,
             "Pasto": 43,
             "Popayán": 43,
-            "Tuluá": 53
+            "Tuluá": 54
         }
         
         # Calcular el total de móviles sugeridas
