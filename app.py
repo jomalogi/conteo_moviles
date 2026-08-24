@@ -19,7 +19,7 @@ st.set_page_config(page_title="Tablero de Moviles Logueadas Regional Occidente",
 
 st.title("📊 Tablero de Moviles Logueadas Regional Occidente")
 
-tab1, tab2 = st.tabs(["📈 Dashboard Histórico", "📁 Cargar Nueva Base Diaria"])
+tab1, tab2, tab3 = st.tabs(["📈 Dashboard Histórico", "📁 Cargar Nueva Base Diaria", "👥 Análisis de Rotación"])
 
 with tab2:
     st.header("Carga de Bases Diarias")
@@ -551,3 +551,113 @@ with tab1:
                 st.info("Sin datos de Aliados DTH.")
 
         
+
+# --- PESTAÑA 3: ROTACIÓN ---
+with tab3:
+    st.header("👥 Análisis de Rotación de Técnicos (Proxy Turnover)")
+    st.markdown("Este módulo mide la retención de los Aliados asumiendo que un técnico que **no ha registrado actividad en los últimos 30 días** ha causado baja (renuncia/despido).")
+    
+    if df_historico.empty:
+        st.warning("No hay datos históricos para calcular la rotación.")
+    else:
+        import pandas as pd
+        # Fecha de análisis (el día más reciente con datos en la BD)
+        fecha_fin_rot = df_historico['fecha'].max()
+        fecha_inicio_activos = fecha_fin_rot - pd.Timedelta(days=30)
+        
+        st.info(f"**Periodo de Plantilla Activa:** {fecha_inicio_activos.strftime('%Y-%m-%d')} al {fecha_fin_rot.strftime('%Y-%m-%d')}")
+        
+        # Obtener el último Aliado y Base Operativa conocido para cada técnico (en caso de que hayan rotado internamente)
+        df_sorted = df_historico.sort_values('fecha')
+        df_latest_info = df_sorted.drop_duplicates(subset=['tecnico_id'], keep='last')[['tecnico_id', 'tecnico_nombre', 'aliado_zonificado', 'base_operativa', 'fecha']]
+        df_latest_info = df_latest_info.rename(columns={'fecha': 'ultima_fecha_actividad'})
+        
+        # 1. Técnicos Activos (cualquier actividad en los últimos 30 días)
+        activos_30d = df_historico[df_historico['fecha'] > fecha_inicio_activos]
+        tecnicos_activos_ids = activos_30d['tecnico_id'].unique()
+        
+        # 2. Técnicos Históricos (existían antes de la ventana de 30 días)
+        historico_previo = df_historico[df_historico['fecha'] <= fecha_inicio_activos]
+        tecnicos_previos_ids = historico_previo['tecnico_id'].unique()
+        
+        # 3. Detectar Bajas (Estaban en la historia pero NO en los activos recientes)
+        bajas_ids = set(tecnicos_previos_ids) - set(tecnicos_activos_ids)
+        
+        df_activos = df_latest_info[df_latest_info['tecnico_id'].isin(tecnicos_activos_ids)].copy()
+        df_bajas = df_latest_info[df_latest_info['tecnico_id'].isin(bajas_ids)].copy()
+        
+        # --- APLICAR FILTROS LATERALES ---
+        if 'aliado_sel' in dir() and aliado_sel:
+            df_activos = df_activos[df_activos['aliado_zonificado'].isin(aliado_sel)]
+            df_bajas = df_bajas[df_bajas['aliado_zonificado'].isin(aliado_sel)]
+        if 'bo_sel' in dir() and bo_sel:
+            df_activos = df_activos[df_activos['base_operativa'].isin(bo_sel)]
+            df_bajas = df_bajas[df_bajas['base_operativa'].isin(bo_sel)]
+            
+        # Actualizar contadores para las tarjetas superiores
+        tecnicos_activos_ids = df_activos['tecnico_id'].unique()
+        bajas_ids = df_bajas['tecnico_id'].unique()
+        
+        # --- MÉTRICAS GLOBALES SUPERIORES ---
+        col_m1, col_m2, col_m3 = st.columns(3)
+        total_activos = len(tecnicos_activos_ids)
+        total_bajas = len(bajas_ids)
+        rotacion_global = (total_bajas / total_activos * 100) if total_activos > 0 else 0
+        
+        col_m1.metric("Plantilla Activa", f"{total_activos} técnicos", help="Técnicos únicos que hicieron trabajos en los últimos 30 días")
+        col_m2.metric("Bajas Detectadas", f"{total_bajas} técnicos", help="No registran actividad en los últimos 30 días", delta_color="inverse")
+        col_m3.metric("Rotación Global", f"{rotacion_global:.1f}%")
+        
+        st.divider()
+        
+        # --- TABLA DE ROTACIÓN POR ALIADO Y BASE ---
+        st.subheader("Rotación por Aliado y Base Operativa")
+        
+        agrupado_activos = df_activos.groupby(['aliado_zonificado', 'base_operativa']).size().reset_index(name='Plantilla Activa')
+        agrupado_bajas = df_bajas.groupby(['aliado_zonificado', 'base_operativa']).size().reset_index(name='Bajas')
+        
+        df_rotacion = pd.merge(agrupado_activos, agrupado_bajas, on=['aliado_zonificado', 'base_operativa'], how='outer').fillna(0)
+        df_rotacion['Plantilla Activa'] = df_rotacion['Plantilla Activa'].astype(int)
+        df_rotacion['Bajas'] = df_rotacion['Bajas'].astype(int)
+        df_rotacion['% Rotación'] = (df_rotacion['Bajas'] / df_rotacion['Plantilla Activa'] * 100).fillna(0)
+        df_rotacion['% Rotación'] = df_rotacion['% Rotación'].replace([float('inf')], 100.0).round(1)
+        
+        # Ordenar para que los de mayor rotación salgan arriba
+        df_rotacion = df_rotacion.sort_values(by='% Rotación', ascending=False).reset_index(drop=True)
+        
+        # Mostrar tabla con mapa de calor (rojo = mucha rotación)
+        df_rotacion_fmt = df_rotacion.copy()
+        df_rotacion_fmt['% Rotación'] = df_rotacion_fmt['% Rotación'].apply(lambda x: f"{x:.1f}%")
+        st.dataframe(df_rotacion_fmt, hide_index=True, use_container_width=True)
+        
+        st.divider()
+        
+        # --- LISTA DETALLADA DE BAJAS ---
+        st.subheader("📋 Lista Negra: Detalle de Técnicos Perdidos")
+        st.markdown("Identifica a los técnicos exactos que abandonaron la operación y envíaselos a los Aliados para pedir explicaciones.")
+        
+        if not df_bajas.empty:
+            df_bajas_mostrar = df_bajas.sort_values(by='ultima_fecha_actividad', ascending=False)
+            df_bajas_mostrar['ultima_fecha_actividad'] = pd.to_datetime(df_bajas_mostrar['ultima_fecha_actividad']).dt.strftime('%Y-%m-%d')
+            
+            col_f1, col_f2 = st.columns([1, 2])
+            with col_f1:
+                filtro_aliado = st.selectbox("Filtrar Bajas por Aliado", ["Todos"] + sorted(df_bajas_mostrar['aliado_zonificado'].dropna().unique().tolist()))
+                if filtro_aliado != "Todos":
+                    df_bajas_mostrar = df_bajas_mostrar[df_bajas_mostrar['aliado_zonificado'] == filtro_aliado]
+                
+            st.dataframe(
+                df_bajas_mostrar[['tecnico_id', 'tecnico_nombre', 'aliado_zonificado', 'base_operativa', 'ultima_fecha_actividad']].rename(
+                    columns={
+                        'tecnico_id': 'ID Técnico',
+                        'tecnico_nombre': 'Nombre del Técnico',
+                        'aliado_zonificado': 'Aliado',
+                        'base_operativa': 'Base Operativa',
+                        'ultima_fecha_actividad': 'Último día trabajado'
+                    }
+                ),
+                hide_index=True,
+                use_container_width=True
+            )
+        else:
+            st.success("¡Excelente! No se detectaron bajas.")
