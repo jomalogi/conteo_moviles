@@ -34,13 +34,29 @@ with tab2:
                     # Leer el archivo estático localmente una sola vez
                     df_bases = pd.read_excel("bases_operativas.xlsx", engine='openpyxl')
                     
+                    import pandas as pd
+                    # 1. Unir todos los Excels en uno solo
+                    df_list = []
                     for f in archivos_moviles:
-                        df_moviles = pd.read_excel(f, engine='openpyxl')
-                        success, msg = process_and_upload(df_moviles, df_bases)
-                        if success:
-                            st.success(f"[{f.name}] {msg}")
-                        else:
-                            st.error(f"[{f.name}] {msg}")
+                        df_list.append(pd.read_excel(f, engine='openpyxl'))
+                    df_all = pd.concat(df_list, ignore_index=True)
+                    
+                    # 2. Buscar la columna de fecha
+                    col_fecha = 'Fecha'
+                    
+                    if col_fecha in df_all.columns:
+                        # Convertir a fecha real para agrupar
+                        df_all[col_fecha] = pd.to_datetime(df_all[col_fecha], dayfirst=True)
+                        
+                        # 3. Procesar día por día (FTTH y DTH mezclados juntos)
+                        for fecha_dt, grupo in df_all.groupby(df_all[col_fecha].dt.date):
+                            success, msg = process_and_upload(grupo.copy(), df_bases)
+                            if success:
+                                st.success(f"Fecha {fecha_dt}: {msg}")
+                            else:
+                                st.error(f"Error en {fecha_dt}: {msg}")
+                    else:
+                        st.error("Ninguno de los archivos tiene la columna 'Fecha'.")
             except Exception as e:
                 st.error(f"Error general procesando los archivos: {e}")
         else:
@@ -138,6 +154,11 @@ with tab1:
             (df_filtered['fecha'] >= start_date) & 
             (df_filtered['fecha'] <= end_date)
         ]
+
+        # --- SEPARAR DTH ---
+        tipos_dth = ['Posventa DTH', 'Instalaciones DTH', 'Arreglos DTH', 'Traslados DTH']
+        df_filtered_dth = df_filtered[df_filtered['trabajo_final'].isin(tipos_dth)].copy()
+        df_filtered = df_filtered[~df_filtered['trabajo_final'].isin(tipos_dth)]
 
         # --- GUARDAR COPIA ANTES DE UNIFICAR PARA CONTAR BROWNFIELD REAL ---
         df_filtered_raw = df_filtered.copy()
@@ -476,3 +497,57 @@ with tab1:
                     st.info("No hay móviles sin iniciar para los filtros seleccionados.")
             else:
                 st.warning("La columna 'sin_trabajo_iniciado' no existe. Sube la base diaria de nuevo para recalcular.")
+
+        # --- SECCIÓN OPERACIÓN DTH ---
+        st.divider()
+        st.header("📡 Operación DTH")
+        
+        df_dth_unicos = df_filtered_dth.drop_duplicates(subset=['fecha', 'tecnico_id'])
+        
+        col_dth1, col_dth2, col_dth3 = st.columns([2, 1, 1])
+        
+        with col_dth1:
+            st.subheader("Histórico DTH por Fecha")
+            if not df_dth_unicos.empty:
+                df_tendencia_dth = df_dth_unicos.groupby(['fecha', 'trabajo_final']).size().reset_index(name='Valor')
+                
+                # Importar colores extra si es necesario
+                import plotly.express as px
+                fig_dth = px.line(
+                    df_tendencia_dth, x='fecha', y='Valor', color='trabajo_final',
+                    text='Valor', markers=True,
+                    labels={"fecha": "Fecha", "Valor": "Cantidad (Técnicos)", "trabajo_final": "Tipo DTH"},
+                    color_discrete_sequence=px.colors.qualitative.Set2
+                )
+                fig_dth.update_traces(textposition="top center")
+                st.plotly_chart(fig_dth, use_container_width=True)
+            else:
+                st.info("No hay datos de DTH para graficar en este periodo.")
+                
+        with col_dth2:
+            st.subheader("Resumen DTH")
+            if not df_dth_unicos.empty:
+                df_resumen_dth = df_dth_unicos.groupby('trabajo_final')['tecnico_id'].nunique().reset_index()
+                df_resumen_dth.rename(columns={'trabajo_final': 'Tipo DTH', 'tecnico_id': 'Cantidad'}, inplace=True)
+                df_resumen_dth = df_resumen_dth.sort_values(by='Cantidad', ascending=False).reset_index(drop=True)
+                
+                total_dth = df_resumen_dth['Cantidad'].sum()
+                df_resumen_dth.loc[len(df_resumen_dth)] = ['TOTAL DTH', total_dth]
+                st.dataframe(df_resumen_dth, hide_index=True)
+            else:
+                st.info("Sin datos de DTH.")
+                
+        with col_dth3:
+            st.subheader("DTH por Aliado")
+            if not df_dth_unicos.empty:
+                df_aliado_dth = df_dth_unicos.groupby('aliado_zonificado')['tecnico_id'].nunique().reset_index()
+                df_aliado_dth.rename(columns={'aliado_zonificado': 'Aliado', 'tecnico_id': 'Cantidad'}, inplace=True)
+                df_aliado_dth = df_aliado_dth.sort_values(by='Cantidad', ascending=False).reset_index(drop=True)
+                
+                total_aliados = df_aliado_dth['Cantidad'].sum()
+                df_aliado_dth.loc[len(df_aliado_dth)] = ['TOTAL', total_aliados]
+                st.dataframe(df_aliado_dth, hide_index=True)
+            else:
+                st.info("Sin datos de Aliados DTH.")
+
+        

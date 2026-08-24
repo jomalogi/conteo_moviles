@@ -6,7 +6,17 @@ import datetime
 company_map = {
     "CICSA COLOMBIA S.A.": "Tabasco OC",
     "TABASCO OC, LLC. SUCURSAL COLOMBIA": "Tabasco OC",
-    "CONECTAR TV S.A.S.": "Conectar TV"
+    "CONECTAR TV S.A.S.": "Conectar TV",
+    "JESMAR HURTADO Y COMPANIA S. EN C.": "JESMAR",
+    "ZENIX SAS": "ZENIX",
+    "FENIX GROUP COMUNICACIONES S.A.S": "FENIX",
+    "COMCEL SMART PHONE LTDA.": "SMARTPHONE",
+    "PHONEMOVIL LTDA": "PHONEMOVIL",
+    "COMCEL DAVIDMOVIL S.A.S": "DAVIDMOVIL",
+    "COMCEL ISAMOVIL SAS": "ISAMOVIL",
+    "PUNTO PRINCIPAL COMUNICACIONES S.A.S": "PUNTO PRINCIPAL",
+    "COMCEL ARTECOM COMUNICACIONES S.A.S": "ARTECOM",
+    "SOLUCIONES MOVILESRIO S.A.S.": "MOVILES RIO"
 }
 
 lista_exclusion = [
@@ -105,7 +115,11 @@ mapping_subtipo = {
     "Arreglo Especial Masivo FTTH": "Arreglos y Pvs FTTH",
     "Orden Especial Migracion Corporativo": "Brownfield",
     "Orden Especial Pymes FTTX": "Instalaciones FTTH",
-    "Mantenimientos Alto Valor": "Arreglos HFC"
+    "Mantenimientos Alto Valor": "Arreglos HFC",
+    "Postventa DTH Postpago": "Posventa DTH",
+    "Instalaciones Basica DTH Postpago": "Instalaciones DTH",
+    "Mantenimiento DTH Postpago": "Arreglos DTH",
+    "Traslado DTH Postpago": "Traslados DTH"
 }
 
 def process_and_upload(moviles_df, bases_operativas_df):
@@ -167,6 +181,7 @@ def process_and_upload(moviles_df, bases_operativas_df):
         
         df_base['Compañía_Homologada'] = df_base[col_compania].astype(str).str.strip().map(company_map)
         df_base = df_base.dropna(subset=['Compañía_Homologada']).copy()
+        # df_base = df_base.dropna(subset=['Compañía_Homologada']).copy()
         
         # Filtrar técnicos excluidos
         df_base = df_base[~df_base[col_tecnico_nombre].astype(str).str.strip().isin(lista_exclusion)]
@@ -253,6 +268,10 @@ def process_and_upload(moviles_df, bases_operativas_df):
         df_to_db['aliado_zonificado'] = df_final['Compañía_Homologada']
         df_to_db['base_operativa'] = df_final[col_base_operativa]
         df_to_db['sin_trabajo_iniciado'] = df_final['sin_trabajo_iniciado']
+
+        # --- REGLA DTH: Forzar Base Operativa ---
+        tipos_dth = ['Posventa DTH', 'Instalaciones DTH', 'Arreglos DTH', 'Traslados DTH']
+        df_to_db.loc[df_to_db['trabajo_final'].isin(tipos_dth), 'base_operativa'] = 'Base DTH R3'
         
         # Obtener unicos (como en el app original que hace df_unicos por tecnico)
         # La regla original le da puntajes y luego hace drop_duplicates(subset=['tecnico_id'], keep='first')
@@ -260,7 +279,8 @@ def process_and_upload(moviles_df, bases_operativas_df):
         # Aplicar regla: Moda por defecto, pero si tiene Instalaciones FTTH o HFC, se priorizan
         jerarquia_inst = {
             "Instalaciones FTTH": 2000000,
-            "Instalaciones HFC": 2000000
+            "Instalaciones HFC": 2000000,
+            "Instalaciones DTH": 2000000
         }
         
         # Calcular el conteo original por técnico y tipo de trabajo
