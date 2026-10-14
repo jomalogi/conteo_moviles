@@ -243,56 +243,86 @@ with tab1:
         # --- GRÁFICO DE LÍNEAS (TENDENCIA) ---
         st.subheader("Tendencia de Móviles Totales por Fecha y Aliado")
         
-        # Diccionario de Móviles Sugeridas por Base Operativa
-        sugeridas_dict = {
+        # Diccionarios de Móviles Sugeridas por Base Operativa
+        import datetime
+
+        # 1. Sugeridas históricas (hasta el 30 de septiembre de 2026)
+        sugeridas_anterior = {
             "Cali Norte": 141,
             "Cali Sur": 222,
             "Espinal": 15,
             "Florencia": 13,
             "Huila": 5,
-            "Ibagué": 72,
+            "Ibagué": 72, "Ibagu�": 72, "Ibague": 72,
             "Neiva": 80,
             "Palmira": 51,
             "Pasto": 43,
-            "Popayán": 43,
-            "Tuluá": 54
+            "Popayán": 43, "Popay�n": 43, "Popayan": 43,
+            "Tuluá": 54, "Tulu�": 54, "Tulua": 54
         }
-        
-        # Calcular el total de móviles sugeridas
-        # Sumamos solo las bases que están presentes en los datos filtrados
+
+        # 2. Nuevas Sugeridas a partir del 1 de octubre de 2026 (Octubre a Diciembre 2026)
+        sugeridas_oct_dic = {
+            "Cali Norte": 144,
+            "Cali Sur": 224,
+            "Espinal": 14,
+            "Florencia": 17,
+            "Huila": 5,
+            "Ibagué": 83, "Ibagu�": 83, "Ibague": 83,
+            "Neiva": 86,
+            "Palmira": 55,
+            "Pasto": 49,
+            "Popayán": 58, "Popay�n": 58, "Popayan": 58,
+            "Tuluá": 58, "Tulu�": 58, "Tulua": 58
+        }
+
+        # Bases presentes en los datos filtrados
         bases_presentes = df_filtered['base_operativa'].dropna().unique()
-        total_sugeridas = sum([sugeridas_dict.get(bo, 0) for bo in bases_presentes])
-        
+
+        def calcular_sugeridas_dia(f_val, bases):
+            try:
+                f_date = pd.to_datetime(f_val).date()
+            except Exception:
+                f_date = f_val
+            dict_meta = sugeridas_oct_dic if f_date >= datetime.date(2026, 10, 1) else sugeridas_anterior
+            return sum([dict_meta.get(bo, 0) for bo in bases])
+
         # Agrupado total
         df_tendencia_total = df_filtered.groupby('fecha').size().reset_index(name='Total')
         df_tendencia_total['Aliado'] = 'Total general'
-        
-        if total_sugeridas > 0:
-            df_tendencia_total['Cumplimiento'] = (df_tendencia_total['Total'] / total_sugeridas * 100).round(1).astype(str) + '%'
-        else:
-            df_tendencia_total['Cumplimiento'] = ''
-            
+
+        # Asignar sugeridas correspondientes a cada fecha
+        df_tendencia_total['Sugeridas'] = df_tendencia_total['fecha'].apply(lambda f: calcular_sugeridas_dia(f, bases_presentes))
+
+        df_tendencia_total['Cumplimiento'] = df_tendencia_total.apply(
+            lambda r: f"{(r['Total'] / r['Sugeridas'] * 100):.1f}%" if r['Sugeridas'] > 0 else '',
+            axis=1
+        )
+
         # Agrupado por aliado
         df_tendencia_aliado = df_filtered.groupby(['fecha', 'aliado_zonificado']).size().reset_index(name='Total')
         df_tendencia_aliado.rename(columns={'aliado_zonificado': 'Aliado'}, inplace=True)
         df_tendencia_aliado['Cumplimiento'] = ''
-        
-        # Línea de Sugeridas
-        df_sugeridas = df_tendencia_total[['fecha']].copy()
-        df_sugeridas['Total'] = total_sugeridas
+
+        # Línea de Sugeridas dinámica por fecha
+        df_sugeridas = df_tendencia_total[['fecha', 'Sugeridas']].copy()
+        df_sugeridas.rename(columns={'Sugeridas': 'Total'}, inplace=True)
         df_sugeridas['Aliado'] = 'Móviles Sugeridas'
         df_sugeridas['Cumplimiento'] = ''
-        
+
         # Concatenar ambos
-        df_tendencia_final = pd.concat([df_tendencia_total, df_tendencia_aliado, df_sugeridas])
-        
+        df_tendencia_final = pd.concat([df_tendencia_total.drop(columns=['Sugeridas']), df_tendencia_aliado, df_sugeridas])
+
         if not df_tendencia_final.empty:
             # Añadir título dinámico
             titulo_grafico = "Histórico de Móviles Activos"
-            if total_sugeridas > 0 and not df_tendencia_total.empty:
-                ultimo_total = df_tendencia_total.iloc[-1]['Total']
-                ultimo_porcentaje = (ultimo_total / total_sugeridas * 100)
-                titulo_grafico += f" (Meta Sugerida: {total_sugeridas} | Último Cumplimiento: {ultimo_porcentaje:.1f}%)"
+            if not df_tendencia_total.empty:
+                ultimo_row = df_tendencia_total.iloc[-1]
+                ultimo_total = ultimo_row['Total']
+                ultimo_sug = ultimo_row['Sugeridas']
+                if ultimo_sug > 0:
+                    ultimo_porcentaje = (ultimo_total / ultimo_sug * 100)
+                    titulo_grafico += f" (Meta Sugerida: {ultimo_sug} | Último Cumplimiento: {ultimo_porcentaje:.1f}%)"
 
             # Crear figura base con plotly express
             fig_line = px.line(
@@ -303,23 +333,27 @@ with tab1:
                 hover_data={"Cumplimiento": True}
             )
             fig_line.update_traces(textposition="top center")
-            
+
             # Hacer que la línea de sugeridas sea punteada para distinguirla visualmente
             for idx, trace in enumerate(fig_line.data):
                 if trace.name == 'Móviles Sugeridas':
                     fig_line.data[idx].line.dash = 'dot'
                     fig_line.data[idx].line.color = '#ef4444' # Rojo claro
-                    
+
             # Crear figura con subplots para doble eje Y
             fig_final = make_subplots(specs=[[{"secondary_y": True}]])
-            
+
             # Añadir las trazas de px.line a la nueva figura
             for trace in fig_line.data:
                 fig_final.add_trace(trace, secondary_y=False)
-                
+
             # Añadir línea de % Cumplimiento
-            if total_sugeridas > 0 and not df_tendencia_total.empty:
-                porcentaje_num = (df_tendencia_total['Total'] / total_sugeridas * 100).round(1)
+            tiene_sugeridas = (df_tendencia_total['Sugeridas'] > 0).any()
+            if tiene_sugeridas and not df_tendencia_total.empty:
+                porcentaje_num = df_tendencia_total.apply(
+                    lambda r: round(r['Total'] / r['Sugeridas'] * 100, 1) if r['Sugeridas'] > 0 else 0.0,
+                    axis=1
+                )
                 fig_final.add_trace(
                     go.Scatter(
                         x=df_tendencia_total['fecha'], 
@@ -333,7 +367,7 @@ with tab1:
                     ),
                     secondary_y=True
                 )
-                
+
             # Actualizar diseño
             fig_final.update_layout(
                 title=fig_line.layout.title,
@@ -341,13 +375,13 @@ with tab1:
                 legend_title_text='Aliado / Métrica'
             )
             fig_final.update_yaxes(title_text="Cantidad de Móviles", secondary_y=False)
-            
-            if total_sugeridas > 0 and not df_tendencia_total.empty:
-                max_pct = max(110.0, porcentaje_num.max() + 10.0)
+
+            if tiene_sugeridas and not df_tendencia_total.empty:
+                max_pct = max(110.0, float(porcentaje_num.max()) + 10.0)
                 fig_final.update_yaxes(title_text="% de Cumplimiento", secondary_y=True, range=[0, max_pct])
             else:
                 fig_final.update_yaxes(title_text="% de Cumplimiento", secondary_y=True, range=[0, 100])
-                
+
             st.plotly_chart(fig_final, use_container_width=True)
         else:
             st.info("No hay datos en la tendencia para graficar con estos filtros.")
